@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic Encryption</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #f3f4f6;
+        }
+        .loader {
+            border: 2px solid #374151;
+            border-radius: 50%;
+            border-top: 2px solid #60a5fa;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl overflow-hidden p-6 border border-gray-700">
+        <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-4">
+            <h1 class="text-xl font-semibold text-gray-100">Semantic Encryption</h1>
+            <div id="status-badge" class="flex items-center gap-2 px-3 py-1 rounded bg-gray-700 text-gray-300 text-xs transition-colors">
+                <div id="loader" class="loader"></div>
+                <span id="status-text">Loading Model...</span>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="space-y-2">
+                <label class="text-sm text-gray-400">Input Text</label>
+                <textarea id="inputText" rows="4" 
+                    class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-blue-500 outline-none text-gray-200 transition-colors"
+                    placeholder="Enter text..."></textarea>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-sm text-gray-400">Key Phrase</label>
+                <input type="text" id="inputKey" 
+                    class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-blue-500 outline-none text-gray-200 transition-colors"
+                    placeholder="Enter secret key...">
+            </div>
+
+            <button id="processBtn" disabled onclick="processText()"
+                class="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded transition-colors flex justify-center items-center gap-2 shadow-md">
+                <span>Process</span>
+            </button>
+
+            <div class="space-y-2">
+                <label class="text-sm text-gray-400">Output</label>
+                <div class="relative">
+                    <textarea id="outputText" rows="4" readonly
+                        class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm font-mono text-gray-300 focus:outline-none"
+                        placeholder="Result..."></textarea>
+                    
+                    <button onclick="copyToClipboard()" class="absolute top-2 right-2 p-2 bg-gray-800 hover:bg-gray-700 rounded text-gray-400 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let model = null;
+        const statusBadge = document.getElementById('status-badge');
+        const statusText = document.getElementById('status-text');
+        const loader = document.getElementById('loader');
+        const processBtn = document.getElementById('processBtn');
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function loadModel() {
+            const maxRetries = 5; 
+            let currentRetry = 0;
+
+            const STANDARD_MODEL_NAME = 'universal-sentence-encoder'; 
+
+            while (currentRetry < maxRetries) {
+                try {
+                    statusText.innerText = currentRetry === 0 ? "Loading Model..." : `Retrying... (${currentRetry})`;
+                    await tf.ready();
+                    
+                    model = await use.load(STANDARD_MODEL_NAME); 
+                    
+                    statusBadge.classList.remove('bg-gray-700', 'text-gray-300');
+                    statusBadge.classList.add('bg-green-900', 'text-green-100');
+                    statusText.innerText = "Ready";
+                    loader.style.display = 'none';
+                    processBtn.disabled = false;
+                    return; 
+                } catch (error) {
+                    currentRetry++;
+                    if (currentRetry >= maxRetries) {
+                        statusText.innerText = "Error Loading Model";
+                        console.error("Failed to load model after multiple retries:", error);
+                        break; 
+                    }
+                    const delay = Math.pow(2, currentRetry - 1) * 1000;
+                    console.warn(`Model load failed, retrying in ${delay / 1000}s...`);
+                    await sleep(delay);
+                }
+            }
+        }
+
+        async function processText() {
+            const inputVal = document.getElementById('inputText').value;
+            const keyVal = document.getElementById('inputKey').value;
+            const outputField = document.getElementById('outputText');
+
+            if (!inputVal || !keyVal) {
+                console.error("Input and Key required");
+                return;
+            }
+
+            if (!model) {
+                console.error("Model is not loaded. Please wait or check the load status.");
+                return;
+            }
+
+            const originalBtnText = processBtn.innerHTML;
+            processBtn.innerHTML = "Processing...";
+            processBtn.disabled = true;
+
+            setTimeout(async () => {
+                try {
+                    const embeddings = await model.embed([keyVal]);
+                    const keyTensorData = await embeddings.data(); 
+                    const keyBytes = new Uint8Array(keyTensorData.buffer);
+
+                    let inputBytes;
+                    let isBase64 = false;
+                    const encoder = new TextEncoder();
+                    const decoder = new TextDecoder();
+
+                    if (/^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/.test(inputVal) && inputVal.length % 4 === 0) {
+                        try {
+                            const binaryString = atob(inputVal);
+                            inputBytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                inputBytes[i] = binaryString.charCodeAt(i);
+                            }
+                            isBase64 = true;
+                        } catch (e) {
+                            inputBytes = encoder.encode(inputVal);
+                        }
+                    } else {
+                        inputBytes = encoder.encode(inputVal);
+                    }
+
+                    const outputBytes = new Uint8Array(inputBytes.length);
+                    const keyLen = keyBytes.length;
+
+                    for (let i = 0; i < inputBytes.length; i++) {
+                        outputBytes[i] = inputBytes[i] ^ keyBytes[i % keyLen];
+                    }
+
+                    let result = "";
+                    if (isBase64) {
+                        try {
+                            result = decoder.decode(outputBytes);
+                            if (/[\x00-\x08\x0E-\x1F]/.test(result)) throw new Error("Binary result");
+                        } catch(e) {
+                            result = u8ToBase64(outputBytes);
+                        }
+                    } else {
+                        result = u8ToBase64(outputBytes);
+                    }
+                    
+                    outputField.value = result;
+                    embeddings.dispose();
+
+                } catch (err) {
+                    console.error(err);
+                    outputField.value = "Error";
+                } finally {
+                    processBtn.innerHTML = originalBtnText;
+                    processBtn.disabled = false;
+                }
+            }, 50);
+        }
+
+        function u8ToBase64(u8) {
+            let binary = '';
+            const len = u8.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(u8[i]);
+            }
+            return btoa(binary);
+        }
+
+        function copyToClipboard() {
+            const copyText = document.getElementById("outputText");
+            copyText.select();
+            document.execCommand("copy");
+        }
+
+        loadModel();
+    </script>
+</body>
+</html>
