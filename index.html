@@ -171,17 +171,29 @@
         }
 
 
-        async function typeWriterEffect(element, text, delay = 10) {
-            element.value = '';
-            element.classList.add('typing-cursor'); 
-            
-            for (let i = 0; i < text.length; i++) {
-                element.value += text.charAt(i);
-                await sleep(delay);
-            }
-            
-            element.classList.remove('typing-cursor');
-        }
+async function typeWriterEffect(element, text) {
+    element.value = '';
+    element.classList.add('typing-cursor');
+
+    let delay;
+    const len = text.length;
+
+    if (len < 200) {
+        delay = 10;       
+    } else if (len < 2000) {
+        delay = 2;         
+    } else {
+        delay = 0;       
+    }
+
+    for (let i = 0; i < text.length; i++) {
+        element.value += text.charAt(i);
+        if (delay > 0) await sleep(delay);
+    }
+
+    element.classList.remove('typing-cursor');
+}
+
 
         function animateScore(targetScore, duration = 500) {
             const start = performance.now();
