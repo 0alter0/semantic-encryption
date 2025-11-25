@@ -25,10 +25,35 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .processing-text {
+            color: #9ca3af; 
+        }
+
+        .output-success-glow {
+            animation: successGlow 0.8s ease-out;
+        }
+
+        @keyframes successGlow {
+            0% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.4); border-color: #60a5fa; } 
+            50% { box-shadow: 0 0 10px 4px rgba(52, 211, 153, 0.6); border-color: #34d399; }
+            100% { box-shadow: none; border-color: #4b5563; }
+        }
+
+        .typing-cursor {
+            padding-right: 4px; 
+            border-right: 2px solid #60a5fa;
+            animation: blink-caret .75s step-end infinite;
+        }
+
+        @keyframes blink-caret {
+            from, to { border-color: transparent }
+            50% { border-color: #60a5fa; }
+        }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl overflow-hidden p-6 border border-gray-700">
+        
         <div class="flex items-center justify-between mb-6 border-b border-gray-700 pb-4">
             <h1 class="text-xl font-semibold text-gray-100">Semantic Encryption</h1>
             <div id="status-badge" class="flex items-center gap-2 px-3 py-1 rounded bg-gray-700 text-gray-300 text-xs transition-colors">
@@ -37,19 +62,30 @@
             </div>
         </div>
 
-        <div class="space-y-6">
+        <div class="flex space-x-1 mb-4 border-b border-gray-700">
+            <button id="cipherTabBtn" onclick="showTab('cipher')" 
+                class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors bg-blue-600 text-white">
+                Cipher
+            </button>
+            <button id="scoreTabBtn" onclick="showTab('score')" 
+                class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors text-gray-400 hover:bg-gray-700">
+                Score
+            </button>
+        </div>
+
+        <div id="cipherTab" class="space-y-6 tab-content">
             <div class="space-y-2">
                 <label class="text-sm text-gray-400">Input Text</label>
                 <textarea id="inputText" rows="4" 
                     class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-blue-500 outline-none text-gray-200 transition-colors"
-                    placeholder="Enter text..."></textarea>
+                    placeholder="Enter plaintext to encrypt or ciphertext to decrypt."></textarea>
             </div>
 
             <div class="space-y-2">
                 <label class="text-sm text-gray-400">Key Phrase</label>
                 <input type="text" id="inputKey" 
                     class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-blue-500 outline-none text-gray-200 transition-colors"
-                    placeholder="Enter secret key...">
+                    placeholder="Enter secret key (must be exactly the same for decryption).">
             </div>
 
             <button id="processBtn" disabled onclick="processText()"
@@ -58,7 +94,7 @@
             </button>
 
             <div class="space-y-2">
-                <label class="text-sm text-gray-400">Output</label>
+                <label class="text-sm text-gray-400">Encrypt Output</label>
                 <div class="relative">
                     <textarea id="outputText" rows="4" readonly
                         class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm font-mono text-gray-300 focus:outline-none"
@@ -72,14 +108,104 @@
                 </div>
             </div>
         </div>
+
+        <div id="scoreTab" class="space-y-6 tab-content hidden">
+            <h2 class="text-lg font-medium text-gray-100">Semantic Similarity Score</h2>
+            <div class="bg-gray-900 p-6 rounded-lg border border-gray-700 text-center">
+                <p class="text-sm text-gray-400 mb-2">Score between Input Text and Key Phrase:</p>
+                <div id="scoreDisplay" class="text-6xl font-extrabold text-blue-400">
+                    N/A
+                </div>
+                <p id="scoreExplanation" class="text-sm mt-4 text-gray-500">
+                    Run the "Process" button in the Encrypt tab to calculate a new score. A value near 1.0 means the two phrases have a very similar meaning.
+                </p>
+            </div>
+        </div>
+
     </div>
 
     <script>
         let model = null;
+        let lastCalculatedScore = null; 
+
         const statusBadge = document.getElementById('status-badge');
         const statusText = document.getElementById('status-text');
         const loader = document.getElementById('loader');
         const processBtn = document.getElementById('processBtn');
+        const outputField = document.getElementById('outputText');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const scoreExplanation = document.getElementById('scoreExplanation');
+        const cipherTabBtn = document.getElementById('cipherTabBtn');
+        const scoreTabBtn = document.getElementById('scoreTabBtn');
+        const cipherTab = document.getElementById('cipherTab');
+        const scoreTab = document.getElementById('scoreTab');
+
+        function showTab(tabName) {
+            if (tabName === 'cipher') {
+                cipherTab.classList.remove('hidden');
+                scoreTab.classList.add('hidden');
+                cipherTabBtn.classList.remove('bg-gray-700', 'text-gray-400', 'hover:bg-gray-700');
+                cipherTabBtn.classList.add('bg-blue-600', 'text-white');
+                scoreTabBtn.classList.remove('bg-blue-600', 'text-white');
+                scoreTabBtn.classList.add('text-gray-400', 'hover:bg-gray-700');
+            } else if (tabName === 'score') {
+                cipherTab.classList.add('hidden');
+                scoreTab.classList.remove('hidden');
+                scoreTabBtn.classList.remove('bg-gray-700', 'text-gray-400', 'hover:bg-gray-700');
+                scoreTabBtn.classList.add('bg-blue-600', 'text-white');
+                cipherTabBtn.classList.remove('bg-blue-600', 'text-white');
+                cipherTabBtn.classList.add('text-gray-400', 'hover:bg-gray-700');
+
+                if (lastCalculatedScore !== null) {
+                    scoreDisplay.innerText = "0.000000"; 
+                    scoreDisplay.classList.remove('text-blue-400');
+                    scoreDisplay.classList.add('text-gray-500');
+
+                    setTimeout(() => {
+                        animateScore(lastCalculatedScore);
+                        scoreDisplay.classList.remove('text-gray-500');
+                        scoreDisplay.classList.add('text-blue-400');
+                    }, 100); 
+                }
+            }
+        }
+
+
+        async function typeWriterEffect(element, text, delay = 10) {
+            element.value = '';
+            element.classList.add('typing-cursor'); 
+            
+            for (let i = 0; i < text.length; i++) {
+                element.value += text.charAt(i);
+                await sleep(delay);
+            }
+            
+            element.classList.remove('typing-cursor');
+        }
+
+        function animateScore(targetScore, duration = 500) {
+            const start = performance.now();
+            const startScore = 0.000000;
+            const fixedDigits = 6;
+            
+            function step(timestamp) {
+                const elapsed = timestamp - start;
+                const progress = Math.min(1, elapsed / duration);
+                
+                const easedProgress = 1 - Math.pow(1 - progress, 3); 
+
+                const currentScore = startScore + easedProgress * (targetScore - startScore);
+                scoreDisplay.innerText = currentScore.toFixed(fixedDigits);
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    scoreDisplay.innerText = targetScore.toFixed(fixedDigits); 
+                }
+            }
+
+            requestAnimationFrame(step);
+        }
 
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
@@ -88,7 +214,6 @@
         async function loadModel() {
             const maxRetries = 5; 
             let currentRetry = 0;
-
             const STANDARD_MODEL_NAME = 'universal-sentence-encoder'; 
 
             while (currentRetry < maxRetries) {
@@ -103,13 +228,13 @@
                     statusText.innerText = "Ready";
                     loader.style.display = 'none';
                     processBtn.disabled = false;
-                    return; 
+                    return;
                 } catch (error) {
                     currentRetry++;
                     if (currentRetry >= maxRetries) {
                         statusText.innerText = "Error Loading Model";
                         console.error("Failed to load model after multiple retries:", error);
-                        break; 
+                        break;
                     }
                     const delay = Math.pow(2, currentRetry - 1) * 1000;
                     console.warn(`Model load failed, retrying in ${delay / 1000}s...`);
@@ -121,8 +246,7 @@
         async function processText() {
             const inputVal = document.getElementById('inputText').value;
             const keyVal = document.getElementById('inputKey').value;
-            const outputField = document.getElementById('outputText');
-
+            
             if (!inputVal || !keyVal) {
                 console.error("Input and Key required");
                 return;
@@ -137,10 +261,44 @@
             processBtn.innerHTML = "Processing...";
             processBtn.disabled = true;
 
+            outputField.classList.add('processing-text');
+            outputField.value = "Calculating" + String.fromCharCode(8230);
+            
+            scoreDisplay.innerText = "0.000000"; 
+            scoreDisplay.classList.remove('text-blue-400');
+            scoreDisplay.classList.add('text-gray-500'); 
+            scoreExplanation.innerText = "Calculating similarity between the two phrases...";
+
+
             setTimeout(async () => {
+                let allEmbeddings = null;
+                let inputEmbeddings = null;
+                let keyEmbeddings = null;
+                let score = 0; 
+
                 try {
-                    const embeddings = await model.embed([keyVal]);
-                    const keyTensorData = await embeddings.data(); 
+                    allEmbeddings = await model.embed([inputVal, keyVal]);
+                    
+                    [inputEmbeddings, keyEmbeddings] = tf.split(allEmbeddings, 2, 0);
+                    
+                    allEmbeddings.dispose(); 
+                    allEmbeddings = null;
+
+                    tf.tidy(() => {
+                        const similarityTensor = tf.matMul(inputEmbeddings, keyEmbeddings.transpose());
+                        score = similarityTensor.arraySync()[0][0]; 
+                    });
+                    
+                    lastCalculatedScore = score;
+                    
+                    animateScore(score);
+                    scoreDisplay.classList.remove('text-gray-500');
+                    scoreDisplay.classList.add('text-blue-400'); 
+
+                    scoreExplanation.innerText = `The phrases are ${Math.max(0, score.toFixed(2)) * 100}% semantically aligned. A score near 1.0 means highly similar meaning.`;
+
+
+                    const keyTensorData = await keyEmbeddings.data(); 
                     const keyBytes = new Uint8Array(keyTensorData.buffer);
 
                     let inputBytes;
@@ -182,15 +340,27 @@
                         result = u8ToBase64(outputBytes);
                     }
                     
-                    outputField.value = result;
-                    embeddings.dispose();
+                    outputField.classList.remove('processing-text');
+                    
+                    await typeWriterEffect(outputField, result); 
+
+                    outputField.classList.add('output-success-glow');
+                    setTimeout(() => {
+                        outputField.classList.remove('output-success-glow');
+                    }, 800);
 
                 } catch (err) {
                     console.error(err);
                     outputField.value = "Error";
+                    scoreDisplay.innerText = "Error";
+                    scoreExplanation.innerText = "An error occurred during processing.";
+                    lastCalculatedScore = null;
                 } finally {
                     processBtn.innerHTML = originalBtnText;
                     processBtn.disabled = false;
+
+                    if (inputEmbeddings) inputEmbeddings.dispose();
+                    if (keyEmbeddings) keyEmbeddings.dispose();
                 }
             }, 50);
         }
@@ -211,6 +381,7 @@
         }
 
         loadModel();
+        showTab('cipher');
     </script>
 </body>
 </html>
